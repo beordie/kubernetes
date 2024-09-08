@@ -89,6 +89,7 @@ for more information about scheduling and the kube-scheduler component.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runCommand(cmd, opts, registryOptions...)
 		},
+		// 不接受位置参数 kube-schedule args 是不允许的
 		Args: func(cmd *cobra.Command, args []string) error {
 			for _, arg := range args {
 				if len(arg) > 0 {
@@ -121,8 +122,7 @@ for more information about scheduling and the kube-scheduler component.`,
 func runCommand(cmd *cobra.Command, opts *options.Options, registryOptions ...Option) error {
 	verflag.PrintAndExitIfRequested()
 
-	// Activate logging as soon as possible, after that
-	// show flags with the final logging configuration.
+	// 日志文件的配置信息
 	if err := logsapi.ValidateAndApply(opts.Logs, utilfeature.DefaultFeatureGate); err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)
@@ -337,7 +337,7 @@ func WithPlugin(name string, factory runtime.PluginFactory) Option {
 	}
 }
 
-// Setup creates a completed config and a scheduler based on the command args and options
+// Setup **根据命令 args 和 options 创建已完成的配置和调度程序**
 func Setup(ctx context.Context, opts *options.Options, outOfTreeRegistryOptions ...Option) (*schedulerserverconfig.CompletedConfig, *scheduler.Scheduler, error) {
 	if cfg, err := latest.Default(); err != nil {
 		return nil, nil, err

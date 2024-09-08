@@ -200,10 +200,12 @@ func (sched *Scheduler) addPodToCache(obj interface{}) {
 	}
 
 	logger.V(3).Info("Add event for scheduled pod", "pod", klog.KObj(pod))
+	// 实现类为 cacheImpl
 	if err := sched.Cache.AddPod(logger, pod); err != nil {
 		logger.Error(err, "Scheduler cache AddPod failed", "pod", klog.KObj(pod))
 	}
 
+	// 将当前接收到的 pod 放入调度队列中
 	sched.SchedulingQueue.AssignedPodAdded(logger, pod)
 }
 
@@ -295,17 +297,18 @@ func addAllEventHandlers(
 		err                 error
 		handlers            []cache.ResourceEventHandlerRegistration
 	)
-	// scheduled pod cache
+	// 监听集群中 pod 变动，将信息放入调度队列中
 	if handlerRegistration, err = informerFactory.Core().V1().Pods().Informer().AddEventHandler(
 		cache.FilteringResourceEventHandler{
+			// 定义过滤器，只有 pod 被分配了节点的才会被处理
 			FilterFunc: func(obj interface{}) bool {
 				switch t := obj.(type) {
 				case *v1.Pod:
 					return assignedPod(t)
 				case cache.DeletedFinalStateUnknown:
 					if _, ok := t.Obj.(*v1.Pod); ok {
-						// The carried object may be stale, so we don't use it to check if
-						// it's assigned or not. Attempting to cleanup anyways.
+						// 由 client go 定义知道，当一个 pod 被删除时如果没有正确的进行事件的响应，
+						// pod 会被标记为 DeletedFinalStateUnknown，这里我们认为这种情况下 pod 也是已经被分配的
 						return true
 					}
 					utilruntime.HandleError(fmt.Errorf("unable to convert object %T to *v1.Pod in %T", obj, sched))
@@ -332,6 +335,7 @@ func addAllEventHandlers(
 			FilterFunc: func(obj interface{}) bool {
 				switch t := obj.(type) {
 				case *v1.Pod:
+					// 如果 pod 没有被分配节点，且 pod 有指定调度器，那么这个 pod 就是未被调度的 pod
 					return !assignedPod(t) && responsibleForPod(t, sched.Profiles)
 				case cache.DeletedFinalStateUnknown:
 					if pod, ok := t.Obj.(*v1.Pod); ok {
@@ -357,6 +361,7 @@ func addAllEventHandlers(
 	}
 	handlers = append(handlers, handlerRegistration)
 
+	// 监听 Node 变化
 	if handlerRegistration, err = informerFactory.Core().V1().Nodes().Informer().AddEventHandler(
 		cache.ResourceEventHandlerFuncs{
 			AddFunc:    sched.addNodeToCache,

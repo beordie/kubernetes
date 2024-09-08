@@ -265,8 +265,7 @@ func (pi *PodInfo) DeepCopy() *PodInfo {
 // has been instantiated and the passed pod is the exact same one as the original pod.
 func (pi *PodInfo) Update(pod *v1.Pod) error {
 	if pod != nil && pi.Pod != nil && pi.Pod.UID == pod.UID {
-		// PodInfo includes immutable information, and so it is safe to update the pod in place if it is
-		// the exact same pod
+		// uuid 相同，直接更新 Pod，表示为同一个 Pod
 		pi.Pod = pod
 		return nil
 	}
@@ -274,14 +273,16 @@ func (pi *PodInfo) Update(pod *v1.Pod) error {
 	var preferredAntiAffinityTerms []v1.WeightedPodAffinityTerm
 	if affinity := pod.Spec.Affinity; affinity != nil {
 		if a := affinity.PodAffinity; a != nil {
+			// pod 亲和性的权重表达式，实际上我们在使用过程中，一般不会使用这个字段
 			preferredAffinityTerms = a.PreferredDuringSchedulingIgnoredDuringExecution
 		}
 		if a := affinity.PodAntiAffinity; a != nil {
+			// 和上述类似，pod 反亲和性的权重表达式，实际上我们在使用过程中，一般不会使用这个字段
 			preferredAntiAffinityTerms = a.PreferredDuringSchedulingIgnoredDuringExecution
 		}
 	}
 
-	// Attempt to parse the affinity terms
+	// 解析亲和性和反亲和性,以及亲和权重
 	var parseErrs []error
 	requiredAffinityTerms, err := GetAffinityTerms(pod, GetPodAffinityTerms(pod.Spec.Affinity))
 	if err != nil {
@@ -432,12 +433,14 @@ func (f *FitError) Error() string {
 }
 
 func newAffinityTerm(pod *v1.Pod, term *v1.PodAffinityTerm) (*AffinityTerm, error) {
+	// 内外版本 internal 对象的转换
 	selector, err := metav1.LabelSelectorAsSelector(term.LabelSelector)
 	if err != nil {
 		return nil, err
 	}
 
 	namespaces := getNamespacesFromPodAffinityTerm(pod, term)
+	// 实际上也就是为了进行转换数据
 	nsSelector, err := metav1.LabelSelectorAsSelector(term.NamespaceSelector)
 	if err != nil {
 		return nil, err
@@ -523,6 +526,7 @@ func getNamespacesFromPodAffinityTerm(pod *v1.Pod, podAffinityTerm *v1.PodAffini
 	if len(podAffinityTerm.Namespaces) == 0 && podAffinityTerm.NamespaceSelector == nil {
 		names.Insert(pod.Namespace)
 	} else {
+		// pod namespace 在调度时需要考虑到亲和性 namespace
 		names.Insert(podAffinityTerm.Namespaces...)
 	}
 	return names

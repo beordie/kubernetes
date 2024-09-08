@@ -54,6 +54,7 @@ type nodeInfoListItem struct {
 	prev *nodeInfoListItem
 }
 
+// 调度缓存的一个实现，赋值给 schedule.Cache
 type cacheImpl struct {
 	stop   <-chan struct{}
 	ttl    time.Duration
@@ -427,13 +428,19 @@ func (cache *cacheImpl) addPod(logger klog.Logger, pod *v1.Pod, assumePod bool) 
 	if err != nil {
 		return err
 	}
+	// 获取 pod 需要调度绑定的 node 信息
 	n, ok := cache.nodes[pod.Spec.NodeName]
 	if !ok {
+		// 如果 node 信息不存在，则创建一个新的 node 信息, 并将 node 信息添加到缓存中
+		// TODO: 这是一个假的 node
 		n = newNodeInfoListItem(framework.NewNodeInfo())
 		cache.nodes[pod.Spec.NodeName] = n
 	}
+	// 将 pod 添加到绑定的 node 信息中
 	n.info.AddPod(pod)
+	// 优先处理当前的 node数据
 	cache.moveNodeInfoToHead(logger, pod.Spec.NodeName)
+	// 记录 pod 的状态, 实际上就是进行一个缓存
 	ps := &podState{
 		pod: pod,
 	}
@@ -482,6 +489,7 @@ func (cache *cacheImpl) removePod(logger klog.Logger, pod *v1.Pod) error {
 }
 
 func (cache *cacheImpl) AddPod(logger klog.Logger, pod *v1.Pod) error {
+	// 使用 pod uid 作为 key，可以保证 pod 的唯一性
 	key, err := framework.GetPodKey(pod)
 	if err != nil {
 		return err
@@ -504,7 +512,7 @@ func (cache *cacheImpl) AddPod(logger klog.Logger, pod *v1.Pod) error {
 			return nil
 		}
 	case !ok:
-		// Pod was expired. We should add it back.
+		// 将没有添加到缓存中的 pod 添加到缓存中, 添加到 podStates, 不往 assumedPods 中添加
 		if err = cache.addPod(logger, pod, false); err != nil {
 			logger.Error(err, "Error occurred while adding pod")
 		}

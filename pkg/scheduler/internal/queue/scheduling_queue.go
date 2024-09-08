@@ -190,6 +190,7 @@ type PriorityQueue struct {
 
 	// activeQ is heap structure that scheduler actively looks at to find pods to
 	// schedule. Head of heap is the highest priority pod.
+	// 即将调度的 pod 队列
 	activeQ *heap.Heap
 	// podBackoffQ is a heap ordered by backoff expiry. Pods which have completed backoff
 	// are popped from this heap before the scheduler looks at activeQ
@@ -463,6 +464,7 @@ func (p *PriorityQueue) isPodWorthRequeuing(logger klog.Logger, pInfo *framework
 	pod := pInfo.Pod
 	queueStrategy := queueSkip
 	for eventToMatch, hintfns := range hintMap {
+		// 指定的插件不匹配当前的事件，跳过
 		if !eventToMatch.Match(event) {
 			continue
 		}
@@ -477,6 +479,7 @@ func (p *PriorityQueue) isPodWorthRequeuing(logger klog.Logger, pInfo *framework
 			if err != nil {
 				// If the QueueingHintFn returned an error, we should treat the event as Queue so that we can prevent
 				// the Pod from being stuck in the unschedulable pod pool.
+				// 如果发生异常了， 仅保留当前 pod 的 namespace 和 name 信息，其余信息丢弃
 				oldObjMeta, newObjMeta, asErr := util.As[klog.KMetadata](oldObj, newObj)
 				if asErr != nil {
 					logger.Error(err, "QueueingHintFn returns error", "event", event, "plugin", hintfn.PluginName, "pod", klog.KObj(pod))
@@ -581,11 +584,12 @@ func (p *PriorityQueue) Add(logger klog.Logger, pod *v1.Pod) error {
 	p.lock.Lock()
 	defer p.lock.Unlock()
 
-	pInfo := p.newQueuedPodInfo(pod)
+	pInfo := p.newQueuedPodInfo(pod) // 做一层数据转换
 	gated := pInfo.Gated
 	if added, err := p.addToActiveQ(logger, pInfo); !added {
 		return err
 	}
+	// 从 unschedulablePods 中删除 pod
 	if p.unschedulablePods.get(pod) != nil {
 		logger.Error(nil, "Error: pod is already in the unschedulable queue", "pod", klog.KObj(pod))
 		p.unschedulablePods.delete(pod, gated)
@@ -785,13 +789,15 @@ func (p *PriorityQueue) AddUnschedulableIfNotPresent(logger klog.Logger, pInfo *
 	defer p.done(pInfo.Pod.UID)
 
 	pod := pInfo.Pod
+	// 什么时候被添加到这个不被调度的队列中
 	if p.unschedulablePods.get(pod) != nil {
 		return fmt.Errorf("Pod %v is already present in unschedulable queue", klog.KObj(pod))
 	}
-
+	// 什么时候被添加到这个调度的队列中
 	if _, exists, _ := p.activeQ.Get(pInfo); exists {
 		return fmt.Errorf("Pod %v is already present in the active queue", klog.KObj(pod))
 	}
+	// 什么时候进入的结束队列
 	if _, exists, _ := p.podBackoffQ.Get(pInfo); exists {
 		return fmt.Errorf("Pod %v is already present in the backoff queue", klog.KObj(pod))
 	}
@@ -1081,6 +1087,8 @@ func (p *PriorityQueue) Delete(pod *v1.Pod) error {
 // may make pending pods with matching affinity terms schedulable.
 func (p *PriorityQueue) AssignedPodAdded(logger klog.Logger, pod *v1.Pod) {
 	p.lock.Lock()
+	// 将一组满足亲和性的 pod 从 unschedulablePods 移动到 activeQ 或 backoffQ
+	// 由于是第一次添加，所以 oldPod 为 nil
 	p.movePodsToActiveOrBackoffQueue(logger, p.getUnschedulablePodsWithMatchingAffinityTerm(logger, pod), AssignedPodAdd, nil, pod)
 	p.lock.Unlock()
 }
@@ -1189,6 +1197,7 @@ func (p *PriorityQueue) requeuePodViaQueueingHint(logger klog.Logger, pInfo *fra
 func (p *PriorityQueue) movePodsToActiveOrBackoffQueue(logger klog.Logger, podInfoList []*framework.QueuedPodInfo, event framework.ClusterEvent, oldObj, newObj interface{}) {
 	if !p.isEventOfInterest(logger, event) {
 		// No plugin is interested in this event.
+		// TODO: 这里看不明白时干啥的, 后面再看
 		return
 	}
 
@@ -1209,6 +1218,7 @@ func (p *PriorityQueue) movePodsToActiveOrBackoffQueue(logger klog.Logger, podIn
 		// Note that we cannot skip all pInfo.Gated Pods here
 		// because PreEnqueue plugins apart from the scheduling gate plugin may change the gating status
 		// with these events.
+		// TODO: 看不明白, 后面再看
 		if pInfo.Gated && pInfo.UnschedulablePlugins.Has(names.SchedulingGates) {
 			continue
 		}
@@ -1251,9 +1261,11 @@ func (p *PriorityQueue) movePodsToActiveOrBackoffQueue(logger klog.Logger, podIn
 // any affinity term that matches "pod".
 // NOTE: this function assumes lock has been acquired in caller.
 func (p *PriorityQueue) getUnschedulablePodsWithMatchingAffinityTerm(logger klog.Logger, pod *v1.Pod) []*framework.QueuedPodInfo {
+	// 就是获取当前 pod 所属命名空间的标签信息
 	nsLabels := interpodaffinity.GetNamespaceLabelsSnapshot(logger, pod.Namespace, p.nsLister)
 
 	var podsToMove []*framework.QueuedPodInfo
+	// 将没有调度的所有 pod 中满足当前调度亲和性的 pod 放到 podsToMove 中, 一起进行调度移动
 	for _, pInfo := range p.unschedulablePods.podInfoMap {
 		for _, term := range pInfo.RequiredAffinityTerms {
 			if term.Matches(pod, nsLabels) {

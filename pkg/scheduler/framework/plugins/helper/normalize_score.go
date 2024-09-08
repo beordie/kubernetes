@@ -26,13 +26,16 @@ import (
 // Note: The input scores are always assumed to be non-negative integers.
 func DefaultNormalizeScore(maxPriority int64, reverse bool, scores framework.NodeScoreList) *framework.Status {
 	var maxCount int64
+	// 寻找最大的分数, 节点分数中的最大值
 	for i := range scores {
 		if scores[i].Score > maxCount {
 			maxCount = scores[i].Score
 		}
 	}
 
+	// 什么情况下会出现这种情况呢？ 所有节点的分数都是 0
 	if maxCount == 0 {
+		// 翻转的话，所有节点的分数都是 maxPriority
 		if reverse {
 			for i := range scores {
 				scores[i].Score = maxPriority
@@ -43,9 +46,10 @@ func DefaultNormalizeScore(maxPriority int64, reverse bool, scores framework.Nod
 
 	for i := range scores {
 		score := scores[i].Score
-
+		// 重新计算分数, 归一化, 使得分数在 [0, maxPriority] 之间
 		score = maxPriority * score / maxCount
 		if reverse {
+			// 翻转的话，原始分数越大，得分越低, 主要是给污点容忍插件使用的
 			score = maxPriority - score
 		}
 
