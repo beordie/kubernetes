@@ -221,8 +221,10 @@ enum MountPropagation {
 message Mount {
     // Path of the mount within the container.
     string container_path = 1;
-    // Path of the mount on the host. If the hostPath doesn't exist, then runtimes
-    // should report error. If the hostpath is a symbolic link, runtimes should
+    // Path of the mount on the host. Has to be empty if the image field below
+    // is provided, because those fields are mutually exclusive. If the image
+    // field below is nil and the host path doesn't exist, then runtimes should
+    // report an error. If the hostpath is a symbolic link, runtimes should
     // follow the symlink and mount the real destination to container.
     string host_path = 2;
     // If set, the mount is read-only.
@@ -1053,6 +1055,19 @@ message WindowsContainerResources {
     int64 memory_limit_in_bytes = 4;
     // Specifies the size of the rootfs / scratch space in bytes to be configured for this container. Default: 0 (not specified).
     int64 rootfs_size_in_bytes = 5;
+    // Optionally specifies the set of CPUs to affinitize for this container.
+    repeated WindowsCpuGroupAffinity affinity_cpus = 6;
+}
+
+// WindowsCpuGroupAffinity specifies the CPU mask and group to affinitize.
+// This is similar to the following _GROUP_AFFINITY structure:
+// https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/miniport/ns-miniport-_group_affinity
+message WindowsCpuGroupAffinity {
+    // CPU mask relative to this CPU group.
+    uint64 cpu_mask = 1;
+    // Processor group the mask refers to, as returned by
+    // GetLogicalProcessorInformationEx.
+    uint32 cpu_group = 2;
 }
 
 // ContainerMetadata holds all necessary information for building the container

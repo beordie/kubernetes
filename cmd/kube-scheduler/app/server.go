@@ -40,7 +40,6 @@ import (
 	"k8s.io/apiserver/pkg/server/mux"
 	"k8s.io/apiserver/pkg/server/routes"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
-	utilversion "k8s.io/apiserver/pkg/util/version"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/events"
@@ -55,8 +54,10 @@ import (
 	"k8s.io/component-base/metrics/legacyregistry"
 	"k8s.io/component-base/metrics/prometheus/slis"
 	"k8s.io/component-base/term"
-	"k8s.io/component-base/version"
+	utilversion "k8s.io/component-base/version"
 	"k8s.io/component-base/version/verflag"
+	zpagesfeatures "k8s.io/component-base/zpages/features"
+	"k8s.io/component-base/zpages/flagz"
 	"k8s.io/klog/v2"
 	schedulerserverconfig "k8s.io/kubernetes/cmd/kube-scheduler/app/config"
 	"k8s.io/kubernetes/cmd/kube-scheduler/app/options"
@@ -67,6 +68,10 @@ import (
 	"k8s.io/kubernetes/pkg/scheduler/framework/runtime"
 	"k8s.io/kubernetes/pkg/scheduler/metrics/resources"
 	"k8s.io/kubernetes/pkg/scheduler/profile"
+)
+
+const (
+	kubeScheduler = "kube-scheduler"
 )
 
 func init() {
@@ -81,8 +86,8 @@ type Option func(runtime.Registry) error
 func NewSchedulerCommand(registryOptions ...Option) *cobra.Command {
 	// explicitly register (if not already registered) the kube effective version and feature gate in DefaultComponentGlobalsRegistry,
 	// which will be used in NewOptions.
-	_, _ = utilversion.DefaultComponentGlobalsRegistry.ComponentGlobalsOrRegister(
-		utilversion.DefaultKubeComponent, utilversion.DefaultBuildEffectiveVersion(), utilfeature.DefaultMutableFeatureGate)
+	_, _ = featuregate.DefaultComponentGlobalsRegistry.ComponentGlobalsOrRegister(
+		featuregate.DefaultKubeComponent, utilversion.DefaultBuildEffectiveVersion(), utilfeature.DefaultMutableFeatureGate)
 	opts := options.NewOptions()
 
 	cmd := &cobra.Command{
@@ -133,7 +138,7 @@ for more information about scheduling and the kube-scheduler component.`,
 // runCommand runs the scheduler.
 func runCommand(cmd *cobra.Command, opts *options.Options, registryOptions ...Option) error {
 	verflag.PrintAndExitIfRequested()
-	fg := opts.ComponentGlobalsRegistry.FeatureGateFor(utilversion.DefaultKubeComponent)
+	fg := opts.ComponentGlobalsRegistry.FeatureGateFor(featuregate.DefaultKubeComponent)
 	// Activate logging as soon as possible, after that
 	// show flags with the final logging configuration.
 	if err := logsapi.ValidateAndApply(opts.Logs, fg); err != nil {
@@ -164,15 +169,15 @@ func Run(ctx context.Context, cc *schedulerserverconfig.CompletedConfig, sched *
 	logger := klog.FromContext(ctx)
 
 	// To help debugging, immediately log version
-	logger.Info("Starting Kubernetes Scheduler", "version", version.Get())
+	logger.Info("Starting Kubernetes Scheduler", "version", utilversion.Get())
 
 	logger.Info("Golang settings", "GOGC", os.Getenv("GOGC"), "GOMAXPROCS", os.Getenv("GOMAXPROCS"), "GOTRACEBACK", os.Getenv("GOTRACEBACK"))
 
 	// Configz registration.
-	if cz, err := configz.New("componentconfig"); err == nil {
-		cz.Set(cc.ComponentConfig)
-	} else {
+	if cz, err := configz.New("componentconfig"); err != nil {
 		return fmt.Errorf("unable to register configz: %s", err)
+	} else {
+		cz.Set(cc.ComponentConfig)
 	}
 
 	// Start events processing pipeline.
@@ -211,11 +216,11 @@ func Run(ctx context.Context, cc *schedulerserverconfig.CompletedConfig, sched *
 	readyzChecks = append(readyzChecks, handlerSyncCheck)
 
 	if cc.LeaderElection != nil && utilfeature.DefaultFeatureGate.Enabled(kubefeatures.CoordinatedLeaderElection) {
-		binaryVersion, err := semver.ParseTolerant(utilversion.DefaultComponentGlobalsRegistry.EffectiveVersionFor(utilversion.DefaultKubeComponent).BinaryVersion().String())
+		binaryVersion, err := semver.ParseTolerant(featuregate.DefaultComponentGlobalsRegistry.EffectiveVersionFor(featuregate.DefaultKubeComponent).BinaryVersion().String())
 		if err != nil {
 			return err
 		}
-		emulationVersion, err := semver.ParseTolerant(utilversion.DefaultComponentGlobalsRegistry.EffectiveVersionFor(utilversion.DefaultKubeComponent).EmulationVersion().String())
+		emulationVersion, err := semver.ParseTolerant(featuregate.DefaultComponentGlobalsRegistry.EffectiveVersionFor(featuregate.DefaultKubeComponent).EmulationVersion().String())
 		if err != nil {
 			return err
 		}
@@ -225,10 +230,10 @@ func Run(ctx context.Context, cc *schedulerserverconfig.CompletedConfig, sched *
 			cc.Client,
 			metav1.NamespaceSystem,
 			cc.LeaderElection.Lock.Identity(),
-			"kube-scheduler",
+			kubeScheduler,
 			binaryVersion.FinalizeVersion(),
 			emulationVersion.FinalizeVersion(),
-			[]coordinationv1.CoordinatedLeaseStrategy{coordinationv1.OldestEmulationVersion},
+			coordinationv1.OldestEmulationVersion,
 		)
 		if err != nil {
 			return err
@@ -237,9 +242,9 @@ func Run(ctx context.Context, cc *schedulerserverconfig.CompletedConfig, sched *
 		go leaseCandidate.Run(ctx)
 	}
 
-	// Start up the healthz server.
+	// Start up the server for endpoints.
 	if cc.SecureServing != nil {
-		handler := buildHandlerChain(newHealthEndpointsAndMetricsHandler(&cc.ComponentConfig, cc.InformerFactory, isLeader, checks, readyzChecks), cc.Authentication.Authenticator, cc.Authorization.Authorizer)
+		handler := buildHandlerChain(newEndpointsHandler(&cc.ComponentConfig, cc.InformerFactory, isLeader, checks, readyzChecks, cc.Flagz), cc.Authentication.Authenticator, cc.Authorization.Authorizer)
 		// TODO: handle stoppedCh and listenerStoppedCh returned by c.SecureServing.Serve
 		if _, _, err := cc.SecureServing.Serve(handler, 0, ctx.Done()); err != nil {
 			// fail early for secure handlers, removing the old error loop from above
@@ -345,11 +350,11 @@ func installMetricHandler(pathRecorderMux *mux.PathRecorderMux, informers inform
 	})
 }
 
-// newHealthEndpointsAndMetricsHandler creates an API health server from the config, and will also
-// embed the metrics handler.
+// newEndpointsHandler creates an API health server from the config, and will also
+// embed the metrics handler and z-pages handler.
 // TODO: healthz check is deprecated, please use livez and readyz instead. Will be removed in the future.
-func newHealthEndpointsAndMetricsHandler(config *kubeschedulerconfig.KubeSchedulerConfiguration, informers informers.SharedInformerFactory, isLeader func() bool, healthzChecks, readyzChecks []healthz.HealthChecker) http.Handler {
-	pathRecorderMux := mux.NewPathRecorderMux("kube-scheduler")
+func newEndpointsHandler(config *kubeschedulerconfig.KubeSchedulerConfiguration, informers informers.SharedInformerFactory, isLeader func() bool, healthzChecks, readyzChecks []healthz.HealthChecker, flagReader flagz.Reader) http.Handler {
+	pathRecorderMux := mux.NewPathRecorderMux(kubeScheduler)
 	healthz.InstallHandler(pathRecorderMux, healthzChecks...)
 	healthz.InstallLivezHandler(pathRecorderMux)
 	healthz.InstallReadyzHandler(pathRecorderMux, readyzChecks...)
@@ -362,6 +367,12 @@ func newHealthEndpointsAndMetricsHandler(config *kubeschedulerconfig.KubeSchedul
 			goruntime.SetBlockProfileRate(1)
 		}
 		routes.DebugFlags{}.Install(pathRecorderMux, "v", routes.StringFlagPutHandler(logs.GlogSetter))
+	}
+
+	if utilfeature.DefaultFeatureGate.Enabled(zpagesfeatures.ComponentFlagz) {
+		if flagReader != nil {
+			flagz.Install(pathRecorderMux, kubeScheduler, flagReader)
+		}
 	}
 	return pathRecorderMux
 }

@@ -60,6 +60,7 @@ import (
 	"k8s.io/component-base/metrics/prometheus/slis"
 	"k8s.io/component-base/version"
 	"k8s.io/component-base/version/verflag"
+	"k8s.io/component-base/zpages/flagz"
 	nodeutil "k8s.io/component-helpers/node/util"
 	"k8s.io/klog/v2"
 	api "k8s.io/kubernetes/pkg/apis/core"
@@ -162,6 +163,7 @@ type ProxyServer struct {
 	Hostname        string
 	PrimaryIPFamily v1.IPFamily
 	NodeIPs         map[v1.IPFamily]net.IP
+	flagz           flagz.Reader
 
 	podCIDRs []string // only used for LocalModeNodeCIDR
 
@@ -169,11 +171,12 @@ type ProxyServer struct {
 }
 
 // newProxyServer creates a ProxyServer based on the given config
-func newProxyServer(ctx context.Context, config *kubeproxyconfig.KubeProxyConfiguration, master string, initOnly bool) (*ProxyServer, error) {
+func newProxyServer(ctx context.Context, config *kubeproxyconfig.KubeProxyConfiguration, master string, initOnly bool, flagzReader flagz.Reader) (*ProxyServer, error) {
 	logger := klog.FromContext(ctx)
 
 	s := &ProxyServer{
 		Config: config,
+		flagz:  flagzReader,
 	}
 
 	cz, err := configz.New(kubeproxyconfig.GroupName)
@@ -419,7 +422,7 @@ func serveHealthz(ctx context.Context, hz *healthcheck.ProxierHealthServer, errC
 	}
 
 	fn := func() {
-		err := hz.Run()
+		err := hz.Run(ctx)
 		if err != nil {
 			logger.Error(err, "Healthz server failed")
 			if errCh != nil {
@@ -435,7 +438,7 @@ func serveHealthz(ctx context.Context, hz *healthcheck.ProxierHealthServer, errC
 	go wait.Until(fn, 5*time.Second, ctx.Done())
 }
 
-func serveMetrics(bindAddress string, proxyMode kubeproxyconfig.ProxyMode, enableProfiling bool, errCh chan error) {
+func serveMetrics(ctx context.Context, bindAddress string, proxyMode kubeproxyconfig.ProxyMode, enableProfiling bool, flagzReader flagz.Reader, errCh chan error) {
 	if len(bindAddress) == 0 {
 		return
 	}
@@ -459,18 +462,36 @@ func serveMetrics(bindAddress string, proxyMode kubeproxyconfig.ProxyMode, enabl
 
 	configz.InstallHandler(proxyMux)
 
+	if flagzReader != nil {
+		flagz.Install(proxyMux, "kube-proxy", flagzReader)
+	}
+
 	fn := func() {
-		err := http.ListenAndServe(bindAddress, proxyMux)
-		if err != nil {
-			err = fmt.Errorf("starting metrics server failed: %w", err)
-			utilruntime.HandleError(err)
-			if errCh != nil {
-				errCh <- err
-				// if in hardfail mode, never retry again
-				blockCh := make(chan error)
-				<-blockCh
+		var err error
+		defer func() {
+			if err != nil {
+				err = fmt.Errorf("starting metrics server failed: %w", err)
+				utilruntime.HandleError(err)
+				if errCh != nil {
+					errCh <- err
+					// if in hardfail mode, never retry again
+					blockCh := make(chan error)
+					<-blockCh
+				}
 			}
+		}()
+
+		listener, err := netutils.MultiListen(ctx, "tcp", bindAddress)
+		if err != nil {
+			return
 		}
+
+		server := &http.Server{Handler: proxyMux}
+		err = server.Serve(listener)
+		if err != nil {
+			return
+		}
+
 	}
 	go wait.Until(fn, 5*time.Second, wait.NeverStop)
 }
@@ -512,7 +533,7 @@ func (s *ProxyServer) Run(ctx context.Context) error {
 	serveHealthz(ctx, s.HealthzServer, healthzErrCh)
 
 	// Start up a metrics server if requested
-	serveMetrics(s.Config.MetricsBindAddress, s.Config.Mode, s.Config.EnableProfiling, metricsErrCh)
+	serveMetrics(ctx, s.Config.MetricsBindAddress, s.Config.Mode, s.Config.EnableProfiling, s.flagz, metricsErrCh)
 
 	noProxyName, err := labels.NewRequirement(apis.LabelServiceProxyName, selection.DoesNotExist, nil)
 	if err != nil {

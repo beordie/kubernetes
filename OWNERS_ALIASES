@@ -94,6 +94,7 @@ aliases:
     - puerco # SIG Technical Lead / RelEng subproject owner / Release Manager
     - saschagrunert # SIG Chair / RelEng subproject owner / Release Manager
     - Verolop # SIG Technical Lead / RelEng subproject owner / Release Manager
+    - xmudrii # RelEng subproject lead / Release Manager
   release-managers:
     - cpanato
     - jeremyrickard
@@ -103,6 +104,9 @@ aliases:
     - saschagrunert
     - Verolop
     - xmudrii
+  release-team-subproject-leads:
+    - gracenng # Release Team subproject lead
+    - katcosgrove # Release Team subproject lead
   build-image-approvers:
     - BenTheElder
     - cblecker
@@ -114,7 +118,7 @@ aliases:
     - puerco # SIG Technical Lead / RelEng subproject owner / Release Manager
     - saschagrunert # SIG Chair / RelEng subproject owner / Release Manager
     - Verolop # SIG Technical Lead / RelEng subproject owner / Release Manager
-    - xmudrii # Release Manager
+    - xmudrii # RelEng subproject lead / Release Manager
   build-image-reviewers:
     - BenTheElder
     - cblecker
@@ -126,7 +130,7 @@ aliases:
     - puerco # SIG Technical Lead / RelEng subproject owner / Release Manager
     - saschagrunert # SIG Chair / RelEng subproject owner / Release Manager
     - Verolop # SIG Technical Lead / RelEng subproject owner / Release Manager
-    - xmudrii # Release Manager
+    - xmudrii # RelEng subproject lead / Release Manager
   sig-storage-approvers:
     - gnufied
     - jsafrane
@@ -138,7 +142,6 @@ aliases:
   # - rootfs
   sig-storage-reviewers:
     - carlory
-    - chrishenzie
     - gnufied
     - humblec
     - jsafrane
@@ -149,6 +152,7 @@ aliases:
     - saikat-royc
     - xing-yang
   # emeritus:
+  # - chrishenzie
   # - davidz627
   # - Jiawei0227
   # - rootfs
@@ -169,6 +173,7 @@ aliases:
     - AxeZhan
     - damemi
     - denkensk
+    - macsko
     - sanposhiho
     - kerthcet
   # emeritus:
@@ -311,6 +316,7 @@ aliases:
     - serathius
     - dgrisonnet
     - rexagod
+    - richabanker
   sig-instrumentation-reviewers:
     - dashpole
     - s-urbaniak
@@ -322,6 +328,7 @@ aliases:
     - pohly
     - mengjiao-liu
     - rexagod
+    - richabanker
   # sig-instrumentation-emeritus
   # - brancz
   # - DirectXMan12
@@ -525,6 +532,7 @@ aliases:
     - mrunalp # Node
     - msau42 # Storage
     - rexagod # Instrumentation
+    - richabanker # Instrumentation
     - saad-ali # Storage
     - sergeykanzhelev # Node
     - shaneutt # Network

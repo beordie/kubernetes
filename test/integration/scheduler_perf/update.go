@@ -49,6 +49,10 @@ type updateAny struct {
 	UpdatePerSecond int
 	// Internal field of the struct used for caching the mapping.
 	cachedMapping *meta.RESTMapping
+	// List of subresources to update.
+	// If empty, update operation is performed on the actual resource.
+	// Optional
+	Subresources []string
 }
 
 var _ runnableOp = &updateAny{}
@@ -145,18 +149,26 @@ func (c *updateAny) update(tCtx ktesting.TContext, env map[string]any) error {
 		if c.cachedMapping.Scope.Name() != meta.RESTScopeNameNamespace {
 			return fmt.Errorf("namespace %q set for %q, but %q has scope %q", c.Namespace, c.TemplatePath, c.cachedMapping.GroupVersionKind, c.cachedMapping.Scope.Name())
 		}
-		_, err := resourceClient.Namespace(c.Namespace).Update(tCtx, obj, options)
+		_, err := resourceClient.Namespace(c.Namespace).Update(tCtx, obj, options, c.Subresources...)
 		if err != nil {
 			return fmt.Errorf("failed to update object in namespace %q: %w", c.Namespace, err)
+		}
+		_, err = resourceClient.Namespace(c.Namespace).UpdateStatus(tCtx, obj, options)
+		if err != nil {
+			return fmt.Errorf("failed to update object status in namespace %q: %w", c.Namespace, err)
 		}
 		return nil
 	}
 	if c.cachedMapping.Scope.Name() != meta.RESTScopeNameRoot {
 		return fmt.Errorf("namespace not set for %q, but %q has scope %q", c.TemplatePath, c.cachedMapping.GroupVersionKind, c.cachedMapping.Scope.Name())
 	}
-	_, err := resourceClient.Update(tCtx, obj, options)
+	_, err := resourceClient.Update(tCtx, obj, options, c.Subresources...)
 	if err != nil {
 		return fmt.Errorf("failed to update object: %w", err)
+	}
+	_, err = resourceClient.UpdateStatus(tCtx, obj, options)
+	if err != nil {
+		return fmt.Errorf("failed to update object status: %w", err)
 	}
 	return nil
 }

@@ -20,6 +20,7 @@ import (
 	gojson "encoding/json"
 	"fmt"
 	"io"
+	"math/big"
 	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -136,10 +137,11 @@ func NestedNumberAsFloat64(obj map[string]interface{}, fields ...string) (float6
 	}
 	switch x := val.(type) {
 	case int64:
-		if x != int64(float64(x)) {
+		f, accuracy := big.NewInt(x).Float64()
+		if accuracy != big.Exact {
 			return 0, false, fmt.Errorf("%v accessor error: int64 value %v cannot be losslessly converted to float64", jsonPath(fields), x)
 		}
-		return float64(x), true, nil
+		return f, true, nil
 	case float64:
 		return x, true, nil
 	default:
@@ -186,7 +188,7 @@ func NestedSlice(obj map[string]interface{}, fields ...string) ([]interface{}, b
 // NestedStringMap returns a copy of map[string]string value of a nested field.
 // Returns false if value is not found and an error if not a map[string]interface{} or contains non-string values in the map.
 func NestedStringMap(obj map[string]interface{}, fields ...string) (map[string]string, bool, error) {
-	m, found, err := nestedMapNoCopy(obj, fields...)
+	m, found, err := nestedMapNoCopy(obj, false, fields...)
 	if !found || err != nil {
 		return nil, found, err
 	}
@@ -201,10 +203,32 @@ func NestedStringMap(obj map[string]interface{}, fields ...string) (map[string]s
 	return strMap, true, nil
 }
 
+// NestedNullCoercingStringMap returns a copy of map[string]string value of a nested field.
+// Returns `nil, true, nil` if the value exists and is explicitly null.
+// Returns `nil, false, err` if the value is not a map or a null value, or is a map and contains non-string non-null values.
+// Null values in the map are coerced to "" to match json decoding behavior.
+func NestedNullCoercingStringMap(obj map[string]interface{}, fields ...string) (map[string]string, bool, error) {
+	m, found, err := nestedMapNoCopy(obj, true, fields...)
+	if !found || err != nil || m == nil {
+		return nil, found, err
+	}
+	strMap := make(map[string]string, len(m))
+	for k, v := range m {
+		if str, ok := v.(string); ok {
+			strMap[k] = str
+		} else if v == nil {
+			strMap[k] = ""
+		} else {
+			return nil, false, fmt.Errorf("%v accessor error: contains non-string value in the map under key %q: %v is of the type %T, expected string", jsonPath(fields), k, v, v)
+		}
+	}
+	return strMap, true, nil
+}
+
 // NestedMap returns a deep copy of map[string]interface{} value of a nested field.
 // Returns false if value is not found and an error if not a map[string]interface{}.
 func NestedMap(obj map[string]interface{}, fields ...string) (map[string]interface{}, bool, error) {
-	m, found, err := nestedMapNoCopy(obj, fields...)
+	m, found, err := nestedMapNoCopy(obj, false, fields...)
 	if !found || err != nil {
 		return nil, found, err
 	}
@@ -213,10 +237,13 @@ func NestedMap(obj map[string]interface{}, fields ...string) (map[string]interfa
 
 // nestedMapNoCopy returns a map[string]interface{} value of a nested field.
 // Returns false if value is not found and an error if not a map[string]interface{}.
-func nestedMapNoCopy(obj map[string]interface{}, fields ...string) (map[string]interface{}, bool, error) {
+func nestedMapNoCopy(obj map[string]interface{}, tolerateNil bool, fields ...string) (map[string]interface{}, bool, error) {
 	val, found, err := NestedFieldNoCopy(obj, fields...)
 	if !found || err != nil {
 		return nil, found, err
+	}
+	if val == nil && tolerateNil {
+		return nil, true, nil
 	}
 	m, ok := val.(map[string]interface{})
 	if !ok {
