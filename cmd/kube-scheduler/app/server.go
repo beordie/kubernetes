@@ -105,9 +105,11 @@ for more information about scheduling and the kube-scheduler component.`,
 			return opts.ComponentGlobalsRegistry.Set()
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// 入口
 			return runCommand(cmd, opts, registryOptions...)
 		},
 		Args: func(cmd *cobra.Command, args []string) error {
+			// 不接受位置参数 kube-schedule args 是不允许的
 			for _, arg := range args {
 				if len(arg) > 0 {
 					return fmt.Errorf("%q does not take any arguments, got %q", cmd.CommandPath(), args)
@@ -141,6 +143,7 @@ func runCommand(cmd *cobra.Command, opts *options.Options, registryOptions ...Op
 	fg := opts.ComponentGlobalsRegistry.FeatureGateFor(featuregate.DefaultKubeComponent)
 	// Activate logging as soon as possible, after that
 	// show flags with the final logging configuration.
+	// 日志文件的配置信息
 	if err := logsapi.ValidateAndApply(opts.Logs, fg); err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)
@@ -150,6 +153,7 @@ func runCommand(cmd *cobra.Command, opts *options.Options, registryOptions ...Op
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go func() {
+		// 获取系统通知
 		stopCh := server.SetupSignalHandler()
 		<-stopCh
 		cancel()
@@ -166,6 +170,7 @@ func runCommand(cmd *cobra.Command, opts *options.Options, registryOptions ...Op
 
 // Run executes the scheduler based on the given configuration. It only returns on error or when context is done.
 func Run(ctx context.Context, cc *schedulerserverconfig.CompletedConfig, sched *scheduler.Scheduler) error {
+	// 这里有一个上下文日志记录器
 	logger := klog.FromContext(ctx)
 
 	// To help debugging, immediately log version
@@ -392,6 +397,7 @@ func WithPlugin(name string, factory runtime.PluginFactory) Option {
 }
 
 // Setup creates a completed config and a scheduler based on the command args and options
+// 根据命令 args 和 options 创建已完成的配置和调度程序
 func Setup(ctx context.Context, opts *options.Options, outOfTreeRegistryOptions ...Option) (*schedulerserverconfig.CompletedConfig, *scheduler.Scheduler, error) {
 	if cfg, err := latest.Default(); err != nil {
 		return nil, nil, err

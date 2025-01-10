@@ -310,14 +310,17 @@ func (o *Options) Config(ctx context.Context) (*schedulerappconfig.Config, error
 	}
 
 	// Prepare kube clients.
+	// 初始化客户端 client，其中 eventClient 用于事件广播
 	client, eventClient, err := createClients(c.KubeConfig)
 	if err != nil {
 		return nil, err
 	}
 
+	// 定义事件广播工具，将 event 发送给各个注册进来的组件
 	c.EventBroadcaster = events.NewEventBroadcasterAdapterWithContext(ctx, eventClient)
 
 	// Set up leader election if enabled.
+	// 如果使用主备模式，则需要创建 leader election 配置
 	var leaderElectionConfig *leaderelection.LeaderElectionConfig
 	if c.ComponentConfig.LeaderElection.LeaderElect {
 		// Use the scheduler name in the first profile to record leader election.

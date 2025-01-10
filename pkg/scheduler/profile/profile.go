@@ -40,6 +40,8 @@ func newProfile(ctx context.Context, cfg config.KubeSchedulerProfile, r framewor
 	opts ...frameworkruntime.Option) (framework.Framework, error) {
 	recorder := recorderFact(cfg.SchedulerName)
 	opts = append(opts, frameworkruntime.WithEventRecorder(recorder))
+
+	// 按照配置文件中的配置，创建一个 framework
 	return frameworkruntime.NewFramework(ctx, r, &cfg, opts...)
 }
 

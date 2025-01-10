@@ -1119,6 +1119,7 @@ func (f *frameworkImpl) RunScorePlugins(ctx context.Context, state *framework.Cy
 	plugins := make([]framework.ScorePlugin, 0, numPlugins)
 	pluginToNodeScores := make(map[string]framework.NodeScoreList, numPlugins)
 	for _, pl := range f.scorePlugins {
+		// 跳过指定的插件
 		if state.SkipScorePlugins.Has(pl.Name()) {
 			continue
 		}
@@ -1136,6 +1137,7 @@ func (f *frameworkImpl) RunScorePlugins(ctx context.Context, state *framework.Cy
 			logger = klog.LoggerWithName(logger, "Score")
 		}
 		// Run Score method for each node in parallel.
+		// 并行为每一个节点计算得分
 		f.Parallelizer().Until(ctx, len(nodes), func(index int) {
 			nodeName := nodes[index].Node().Name
 			logger := logger
@@ -1148,6 +1150,7 @@ func (f *frameworkImpl) RunScorePlugins(ctx context.Context, state *framework.Cy
 					logger := klog.LoggerWithName(logger, pl.Name())
 					ctx = klog.NewContext(ctx, logger)
 				}
+				// 计算当前插件的得分
 				s, status := f.runScorePlugin(ctx, pl, state, pod, nodeName)
 				if !status.IsSuccess() {
 					err := fmt.Errorf("plugin %q failed with: %w", pl.Name(), status.AsError())
@@ -1169,8 +1172,10 @@ func (f *frameworkImpl) RunScorePlugins(ctx context.Context, state *framework.Cy
 	f.Parallelizer().Until(ctx, len(plugins), func(index int) {
 		pl := plugins[index]
 		if pl.ScoreExtensions() == nil {
+			// 如果没有实现 ScoreExtensions 接口, 直接返回
 			return
 		}
+		// 当前插件的所有节点得分
 		nodeScoreList := pluginToNodeScores[pl.Name()]
 		status := f.runScoreExtension(ctx, pl, state, pod, nodeScoreList)
 		if !status.IsSuccess() {
@@ -1192,6 +1197,7 @@ func (f *frameworkImpl) RunScorePlugins(ctx context.Context, state *framework.Cy
 		}
 
 		for i, pl := range plugins {
+			// 按照插件的占比权重，重新进行得分的计算
 			weight := f.scorePluginWeight[pl.Name()]
 			nodeScoreList := pluginToNodeScores[pl.Name()]
 			score := nodeScoreList[index].Score

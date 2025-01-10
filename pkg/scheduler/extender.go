@@ -324,6 +324,7 @@ func (h *HTTPExtender) Prioritize(pod *v1.Pod, nodes []*framework.NodeInfo) (*ex
 		args      *extenderv1.ExtenderArgs
 	)
 
+	// 如果没有配置优选接口, 则得分默认为 0
 	if h.prioritizeVerb == "" {
 		result := extenderv1.HostPriorityList{}
 		for _, node := range nodes {
@@ -332,6 +333,7 @@ func (h *HTTPExtender) Prioritize(pod *v1.Pod, nodes []*framework.NodeInfo) (*ex
 		return &result, 0, nil
 	}
 
+	// 如果拓展定义了缓存, 则直接传入节点名, 否则传入一整个 Node 列表
 	if h.nodeCacheCapable {
 		nodeNameSlice := make([]string, 0, len(nodes))
 		for _, node := range nodes {
@@ -351,6 +353,7 @@ func (h *HTTPExtender) Prioritize(pod *v1.Pod, nodes []*framework.NodeInfo) (*ex
 		NodeNames: nodeNames,
 	}
 
+	// 获取拓展优选器得分
 	if err := h.send(h.prioritizeVerb, args, &result); err != nil {
 		return nil, 0, err
 	}

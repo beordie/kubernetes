@@ -422,6 +422,7 @@ func (pi *PodInfo) DeepCopy() *PodInfo {
 // Update creates a full new PodInfo by default. And only updates the pod when the PodInfo
 // has been instantiated and the passed pod is the exact same one as the original pod.
 func (pi *PodInfo) Update(pod *v1.Pod) error {
+	// uuid 相同，直接更新 Pod，表示为同一个 Pod
 	if pod != nil && pi.Pod != nil && pi.Pod.UID == pod.UID {
 		// PodInfo includes immutable information, and so it is safe to update the pod in place if it is
 		// the exact same pod
@@ -432,15 +433,18 @@ func (pi *PodInfo) Update(pod *v1.Pod) error {
 	var preferredAntiAffinityTerms []v1.WeightedPodAffinityTerm
 	if affinity := pod.Spec.Affinity; affinity != nil {
 		if a := affinity.PodAffinity; a != nil {
+			// pod 亲和性的权重表达式
 			preferredAffinityTerms = a.PreferredDuringSchedulingIgnoredDuringExecution
 		}
 		if a := affinity.PodAntiAffinity; a != nil {
+			// 同上 pod 反亲和性的权重表达式
 			preferredAntiAffinityTerms = a.PreferredDuringSchedulingIgnoredDuringExecution
 		}
 	}
 
 	// Attempt to parse the affinity terms
 	var parseErrs []error
+	// 解析亲和性和反亲和性,以及亲和权重
 	requiredAffinityTerms, err := GetAffinityTerms(pod, GetPodAffinityTerms(pod.Spec.Affinity))
 	if err != nil {
 		parseErrs = append(parseErrs, fmt.Errorf("requiredAffinityTerms: %w", err))
@@ -594,12 +598,14 @@ func (f *FitError) Error() string {
 }
 
 func newAffinityTerm(pod *v1.Pod, term *v1.PodAffinityTerm) (*AffinityTerm, error) {
+	// 内外版本 internal 对象的转换
 	selector, err := metav1.LabelSelectorAsSelector(term.LabelSelector)
 	if err != nil {
 		return nil, err
 	}
 
 	namespaces := getNamespacesFromPodAffinityTerm(pod, term)
+	// 实际上也就是为了进行转换数据
 	nsSelector, err := metav1.LabelSelectorAsSelector(term.NamespaceSelector)
 	if err != nil {
 		return nil, err
@@ -685,6 +691,7 @@ func getNamespacesFromPodAffinityTerm(pod *v1.Pod, podAffinityTerm *v1.PodAffini
 	if len(podAffinityTerm.Namespaces) == 0 && podAffinityTerm.NamespaceSelector == nil {
 		names.Insert(pod.Namespace)
 	} else {
+		// pod namespace 在调度时需要考虑到亲和性
 		names.Insert(podAffinityTerm.Namespaces...)
 	}
 	return names

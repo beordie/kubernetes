@@ -269,6 +269,7 @@ func (pl *NodeAffinity) Score(ctx context.Context, state *framework.CycleState, 
 
 	var count int64
 	if pl.addedPrefSchedTerms != nil {
+		// 计算亲和节点权重
 		count += pl.addedPrefSchedTerms.Score(node)
 	}
 
@@ -298,6 +299,8 @@ func (pl *NodeAffinity) NormalizeScore(ctx context.Context, state *framework.Cyc
 
 // ScoreExtensions of the Score plugin.
 func (pl *NodeAffinity) ScoreExtensions() framework.ScoreExtensions {
+	// 将自身作为 ScoreExtensions 返回, 其本身也是该接口的一个实现,
+	// 同时 ScoreExtensions 也是上层接口的抽象, 这种方式可以避免在外部实现强制类型转换
 	return pl
 }
 

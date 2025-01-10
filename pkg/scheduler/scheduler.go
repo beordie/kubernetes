@@ -88,6 +88,7 @@ type Scheduler struct {
 	StopEverything <-chan struct{}
 
 	// SchedulingQueue holds pods to be scheduled
+	// 即将被调度的 pod 列表, 该列表可以发生争抢
 	SchedulingQueue internalqueue.SchedulingQueue
 
 	// Profiles are the scheduling profiles.
@@ -97,6 +98,7 @@ type Scheduler struct {
 
 	nodeInfoSnapshot *internalcache.Snapshot
 
+	// 一个阈值，当一个 pod 找到了该比例的节点后，就不再继续寻找
 	percentageOfNodesToScore int32
 
 	nextStartNodeIndex int
@@ -283,6 +285,8 @@ func New(ctx context.Context,
 
 	metrics.Register()
 
+	// 让 kubernetes 具有扩展性，就是增加 HTTP 调度扩展程序
+	// 正常情况下，不需要进行管理
 	extenders, err := buildExtenders(logger, options.extenders, options.profiles)
 	if err != nil {
 		return nil, fmt.Errorf("couldn't build extenders: %w", err)
@@ -358,6 +362,7 @@ func New(ctx context.Context,
 		fwk.SetPodActivator(podQueue)
 	}
 
+	// 对象缓存，pod 会进入到该缓存中
 	schedulerCache := internalcache.New(ctx, durationToExpireAssumedPod)
 
 	// Setup cache debugger.
@@ -378,6 +383,7 @@ func New(ctx context.Context,
 	sched.NextPod = podQueue.Pop
 	sched.applyDefaultHandlers()
 
+	// 这里注册事件监听器，包括 pod 的事件，将 pod 塞进调度队列中
 	if err = addAllEventHandlers(sched, informerFactory, dynInformerFactory, resourceClaimCache, unionedGVKs(queueingHintsPerProfile)); err != nil {
 		return nil, fmt.Errorf("adding event handlers: %w", err)
 	}

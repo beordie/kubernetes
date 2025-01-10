@@ -64,6 +64,8 @@ const (
 // ScheduleOne does the entire scheduling workflow for a single pod. It is serialized on the scheduling algorithm's host fitting.
 func (sched *Scheduler) ScheduleOne(ctx context.Context) {
 	logger := klog.FromContext(ctx)
+	// 取出一个待调度的 pod
+	// 实际上是从 activeQ 队列中取一个
 	podInfo, err := sched.NextPod(logger)
 	if err != nil {
 		logger.Error(err, "Error while retrieving next pod from scheduling queue")
@@ -82,6 +84,7 @@ func (sched *Scheduler) ScheduleOne(ctx context.Context) {
 	ctx = klog.NewContext(ctx, logger)
 	logger.V(4).Info("About to try and schedule pod", "pod", klog.KObj(pod))
 
+	// 获取 pod.spec.schedulerName 所指定的调度器框架
 	fwk, err := sched.frameworkForPod(pod)
 	if err != nil {
 		// This shouldn't happen, because we only accept for scheduling the pods
@@ -112,6 +115,7 @@ func (sched *Scheduler) ScheduleOne(ctx context.Context) {
 
 	scheduleResult, assumedPodInfo, status := sched.schedulingCycle(schedulingCycleCtx, state, fwk, podInfo, start, podsToActivate)
 	if !status.IsSuccess() {
+		// 调度 pod 失败, 需要重新入队
 		sched.FailureHandler(schedulingCycleCtx, fwk, assumedPodInfo, status, scheduleResult.nominatingInfo, start)
 		return
 	}
@@ -512,6 +516,7 @@ func (sched *Scheduler) findNodesThatFitPod(ctx context.Context, fwk framework.F
 		}
 		diagnosis.NodeToStatus.SetAbsentNodesStatus(framework.NewStatus(framework.UnschedulableAndUnresolvable, fmt.Sprintf("node(s) didn't satisfy plugin(s) %v", sets.List(unscheduledPlugins))))
 	}
+	// 调用拓展进行节点的预选
 	feasibleNodes, err := sched.findNodesThatPassFilters(ctx, fwk, state, pod, &diagnosis, nodes)
 	// always try to update the sched.nextStartNodeIndex regardless of whether an error has occurred
 	// this is helpful to make sure that all the nodes have a chance to be searched
@@ -786,6 +791,7 @@ func prioritizeNodes(
 	}
 
 	// Additional details logged at level 10 if enabled.
+	// 打印插件计算的节点分数日志而已
 	loggerVTen := logger.V(10)
 	if loggerVTen.Enabled() {
 		for _, nodeScore := range nodesScores {
@@ -795,6 +801,7 @@ func prioritizeNodes(
 		}
 	}
 
+	// 计算自定义拓展得分情况, 需要自己实现的接口
 	if len(extenders) != 0 && nodes != nil {
 		// allNodeExtendersScores has all extenders scores for all nodes.
 		// It is keyed with node name.
@@ -806,6 +813,7 @@ func prioritizeNodes(
 				continue
 			}
 			wg.Add(1)
+			// 异步对每个拓展插件进行得分处理
 			go func(extIndex int) {
 				metrics.Goroutines.WithLabelValues(metrics.PrioritizingExtender).Inc()
 				defer func() {
@@ -1020,6 +1028,7 @@ func getAttemptsLabel(p *framework.QueuedPodInfo) string {
 // handleSchedulingFailure records an event for the pod that indicates the
 // pod has failed to schedule. Also, update the pod condition and nominated node name if set.
 func (sched *Scheduler) handleSchedulingFailure(ctx context.Context, fwk framework.Framework, podInfo *framework.QueuedPodInfo, status *framework.Status, nominatingInfo *framework.NominatingInfo, start time.Time) {
+	// 标记任务完成
 	calledDone := false
 	defer func() {
 		if !calledDone {
@@ -1031,6 +1040,7 @@ func (sched *Scheduler) handleSchedulingFailure(ctx context.Context, fwk framewo
 	}()
 
 	logger := klog.FromContext(ctx)
+	// pod 没有调度的结果, 记录日志
 	reason := v1.PodReasonSchedulerError
 	if status.IsRejected() {
 		reason = v1.PodReasonUnschedulable
@@ -1074,6 +1084,7 @@ func (sched *Scheduler) handleSchedulingFailure(ctx context.Context, fwk framewo
 			// ignore this err since apiserver doesn't properly validate affinity terms
 			// and we can't fix the validation for backwards compatibility.
 			podInfo.PodInfo, _ = framework.NewPodInfo(cachedPod.DeepCopy())
+			// 添加到调度队列
 			if err := sched.SchedulingQueue.AddUnschedulableIfNotPresent(logger, podInfo, sched.SchedulingQueue.SchedulingCycle()); err != nil {
 				logger.Error(err, "Error occurred")
 			}

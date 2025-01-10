@@ -208,6 +208,7 @@ func (aq *activeQueue) unlockedPop(logger klog.Logger) (*framework.QueuedPodInfo
 	pInfo.Attempts++
 	// In flight, no concurrent events yet.
 	if aq.isSchedulingQueueHintEnabled {
+		// TODO: 避免一个 pod 被重复调度？
 		// If the pod is already in the map, we shouldn't overwrite the inFlightPods otherwise it'd lead to a memory leak.
 		// https://github.com/kubernetes/kubernetes/pull/127016
 		if _, ok := aq.inFlightPods[pInfo.Pod.UID]; ok {
@@ -354,6 +355,7 @@ func (aq *activeQueue) done(pod types.UID) {
 	aq.lock.Lock()
 	defer aq.lock.Unlock()
 
+	// 在 pop 中进行记录的
 	inFlightPod, ok := aq.inFlightPods[pod]
 	if !ok {
 		// This Pod is already done()ed.

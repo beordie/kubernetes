@@ -27,6 +27,7 @@ import (
 )
 
 func main() {
+	// 使用 cobra 初始化启动命令
 	command := app.NewSchedulerCommand()
 	code := cli.Run(command)
 	os.Exit(code)

@@ -168,7 +168,7 @@ type PriorityQueue struct {
 	podMaxBackoffDuration time.Duration
 	// the maximum time a pod can stay in the unschedulablePods.
 	podMaxInUnschedulablePodsDuration time.Duration
-
+	// 即将调度的 pod 队列
 	activeQ activeQueuer
 	// podBackoffQ is a heap ordered by backoff expiry. Pods which have completed backoff
 	// are popped from this heap before the scheduler looks at activeQ
@@ -442,6 +442,7 @@ func (p *PriorityQueue) isPodWorthRequeuing(logger klog.Logger, pInfo *framework
 	pod := pInfo.Pod
 	queueStrategy := queueSkip
 	for eventToMatch, hintfns := range hintMap {
+		// 指定的插件不匹配当前的事件，跳过
 		if !eventToMatch.Match(event) {
 			continue
 		}
@@ -457,6 +458,7 @@ func (p *PriorityQueue) isPodWorthRequeuing(logger klog.Logger, pInfo *framework
 			if err != nil {
 				// If the QueueingHintFn returned an error, we should treat the event as Queue so that we can prevent
 				// the Pod from being stuck in the unschedulable pod pool.
+				// 如果发生异常了，仅保留当前 pod 的 namespace 和 name 信息，其余信息丢弃
 				oldObjMeta, newObjMeta, asErr := util.As[klog.KMetadata](oldObj, newObj)
 				if asErr != nil {
 					logger.Error(err, "QueueingHintFn returns error", "event", event, "plugin", hintfn.PluginName, "pod", klog.KObj(pod))
@@ -599,6 +601,7 @@ func (p *PriorityQueue) Add(logger klog.Logger, pod *v1.Pod) {
 	p.lock.Lock()
 	defer p.lock.Unlock()
 
+	// 做一层数据转换
 	pInfo := p.newQueuedPodInfo(pod)
 	if added := p.moveToActiveQ(logger, pInfo, framework.EventUnscheduledPodAdd.Label()); added {
 		p.activeQ.broadcast()
@@ -1008,6 +1011,8 @@ func (p *PriorityQueue) AssignedPodAdded(logger klog.Logger, pod *v1.Pod) {
 
 	// Pre-filter Pods to move by getUnschedulablePodsWithCrossTopologyTerm
 	// because Pod related events shouldn't make Pods that rejected by single-node scheduling requirement schedulable.
+	// 将一组满足亲和性的 pod 从 unschedulablePods 移动到 activeQ 或 backoffQ
+	// 由于是第一次添加，所以 oldPod 为 nil
 	p.movePodsToActiveOrBackoffQueue(logger, p.getUnschedulablePodsWithCrossTopologyTerm(logger, pod), framework.EventAssignedPodAdd, nil, pod)
 	p.lock.Unlock()
 }
