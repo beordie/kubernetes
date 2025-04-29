@@ -438,7 +438,7 @@ func (cache *cacheImpl) addPod(logger klog.Logger, pod *v1.Pod, assumePod bool) 
 	}
 	// 将 pod 添加到绑定的 node 信息中
 	n.info.AddPod(pod)
-	// 优先处理当前的 node数据
+	// 优先处理当前的 node 数据
 	cache.moveNodeInfoToHead(logger, pod.Spec.NodeName)
 	// 记录 pod 的状态, 实际上就是进行一个缓存
 	ps := &podState{

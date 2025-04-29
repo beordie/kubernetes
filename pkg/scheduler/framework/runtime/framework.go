@@ -859,6 +859,8 @@ func (f *frameworkImpl) RunFilterPlugins(
 		logger = klog.LoggerWithName(logger, "Filter")
 	}
 
+	// 对当前的 node 执行所有的插件
+	// 如果所有的插件都执行正常, 返回一个 nil
 	for _, pl := range f.filterPlugins {
 		if state.SkipFilterPlugins.Has(pl.Name()) {
 			continue
@@ -882,6 +884,7 @@ func (f *frameworkImpl) RunFilterPlugins(
 	return nil
 }
 
+// runFilterPlugin 执行预选插件
 func (f *frameworkImpl) runFilterPlugin(ctx context.Context, pl framework.FilterPlugin, state *framework.CycleState, pod *v1.Pod, nodeInfo *framework.NodeInfo) *framework.Status {
 	if !state.ShouldRecordPluginMetrics() {
 		return pl.Filter(ctx, state, pod, nodeInfo)
@@ -998,6 +1001,9 @@ func (f *frameworkImpl) RunFilterPluginsWithNominatedPods(ctx context.Context, s
 		}
 
 		status = f.RunFilterPlugins(ctx, stateToUse, pod, nodeInfoToUse)
+
+		// FIXME: status 可能是一个 nil 空值, 下面发生空指针异常
+		// 其他 release 分支修改了上述代码, 保证 status 的返回值不为空
 		if !status.IsSuccess() && !status.IsRejected() {
 			return status
 		}
